@@ -31,6 +31,8 @@ batch_size = 32
 
 # Function to load a subset of data from the dataset
 def load_data_subset(directory, subset_percentage, target_size=(img_height, img_width)):
+    """Loading the image data subset by passing Directory path, Subset percentage, Target Size
+    """
     datagen = ImageDataGenerator(rescale=1./255, validation_split=1.0 - subset_percentage)
     generator = datagen.flow_from_directory(
         directory,
@@ -43,7 +45,7 @@ def load_data_subset(directory, subset_percentage, target_size=(img_height, img_
     return generator
 
 # Define subset percentage
-subset_percentage = 0.3  # Change this to desired percentage
+subset_percentage = 0.4
 
 # Load subset of training and validation data
 train_generator = load_data_subset('/content/drive/MyDrive/Dataset/Train', subset_percentage)
@@ -74,7 +76,7 @@ model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy']
 history = model.fit(
     train_generator,
     steps_per_epoch=train_generator.samples // batch_size,
-    epochs=5,
+    epochs=10,
     validation_data=val_generator,
     validation_steps=val_generator.samples // batch_size
 )
@@ -82,6 +84,73 @@ history = model.fit(
 # Evaluate the model
 loss, accuracy = model.evaluate(val_generator)
 print("Validation Accuracy:", accuracy)
+
+"""# Improved implementation"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import itertools
+import tensorflow as tf
+from sklearn.metrics import confusion_matrix, classification_report
+from tensorflow.keras.preprocessing.image import ImageDataGenerator   # real time data augmentation
+from tensorflow.keras.applications import VGG16                       # loading pre-trained model
+from tensorflow.keras.layers import Dense, Flatten                    #adding fully connected layers
+from tensorflow.keras.models import Model
+
+# Define image dimensions
+img_height, img_width = 224, 224
+batch_size = 32
+
+# Function to load a subset of data from the dataset
+def load_data_subset(directory, subset_percentage, target_size=(img_height, img_width)):
+    datagen = ImageDataGenerator(rescale=1./255, validation_split=1.0 - subset_percentage)
+    generator = datagen.flow_from_directory(
+        directory,
+        target_size=target_size,
+        batch_size=batch_size,
+        class_mode='binary',
+        shuffle=True,
+        subset='training'
+    )
+    return generator
+
+# Define subset percentage
+subset_percentage = 0.4  # Change this to desired percentage
+
+# Load subset of training and validation data
+train_generator = load_data_subset('/content/drive/MyDrive/Dataset/Train', subset_percentage)
+val_generator = load_data_subset('/content/drive/MyDrive/Dataset/Validation', subset_percentage)
+
+# Load pre-trained VGG16 model
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(img_height, img_width, 3))
+
+# Freeze the convolutional base
+base_model.trainable = False
+
+# Add custom classification layers
+x = Flatten()(base_model.output)
+x = Dense(128, activation='relu')(x)
+predictions = Dense(1, activation='sigmoid')(x)
+
+# Create the model
+model = Model(inputs=base_model.input, outputs=predictions)
+
+# Compile the model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Train the model
+history = model.fit(
+    train_generator,
+    steps_per_epoch=train_generator.samples // batch_size,
+    epochs=10,
+    validation_data=val_generator,
+    validation_steps=val_generator.samples // batch_size
+)
+
+from tensorflow.keras.callbacks import EarlyStopping
+
+# Define early stopping callback
+early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 
 # Fine-tune the model
 base_model.trainable = True
@@ -93,9 +162,10 @@ model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accurac
 history_fine_tune = model.fit(
     train_generator,
     steps_per_epoch=train_generator.samples // batch_size,
-    epochs=10,  # Adjust epochs as needed
+    epochs=20,
     validation_data=val_generator,
     validation_steps=val_generator.samples // batch_size
+    callbacks=[early_stopping]
 )
 
 # Generate predictions
@@ -128,3 +198,99 @@ plt.tight_layout()
 plt.ylabel('True label')
 plt.xlabel('Predicted label')
 plt.show()
+
+import os
+import random
+import matplotlib.pyplot as plt
+from tensorflow.keras.preprocessing import image
+
+# Define the base path to the dataset
+base_path = '/content/drive/MyDrive/Dataset/Test'
+
+# Randomly choose between 'Real' and 'Fake' directories
+image_type = random.choice(['Real', 'Fake'])
+
+# Generate a random image ID between 0 and 99
+image_id = random.randint(0, 99)
+
+# Construct the image path
+img_path = os.path.join(base_path, image_type, f'{image_type.lower()}_{image_id}.jpg')
+
+# Load and preprocess the image
+img = image.load_img(img_path, target_size=(img_height, img_width))
+img_array = image.img_to_array(img)
+img_array = tf.expand_dims(img_array, 0)  # Expand the shape to match the batch size
+img_array /= 255.0  # Normalize the pixel values
+
+# Get the model prediction
+prediction = model.predict(img_array)
+predicted_label = "Fake" if prediction[0][0] > 0.5 else "Real"
+
+# Display the image and predicted label
+plt.imshow(img)
+plt.title(f'Predicted Label: {predicted_label}')
+plt.axis('off')
+plt.show()
+
+import matplotlib.pyplot as plt
+
+# Get the training and validation accuracy from the history object
+training_accuracy = history.history['accuracy']
+validation_accuracy = history.history['val_accuracy']
+
+# Get the training and validation loss from the history object
+training_loss = history.history['loss']
+validation_loss = history.history['val_loss']
+
+# Plot the training and validation accuracy
+plt.figure(figsize=(10, 5))
+plt.plot(training_accuracy, label='Training Accuracy', color='blue')
+plt.plot(validation_accuracy, label='Validation Accuracy', color='orange')
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+# Plot the training and validation loss
+plt.figure(figsize=(10, 5))
+plt.plot(training_loss, label='Training Loss', color='blue')
+plt.plot(validation_loss, label='Validation Loss', color='orange')
+plt.title('Training and Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications.vgg16 import preprocess_input, decode_predictions
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load the pretrained VGG16 model
+model = tf.keras.applications.VGG16(weights='imagenet')
+
+# Load and preprocess the image
+img_path = '/content/drive/MyDrive/Dataset/Test/Fake/fake_1009.jpg'
+img = image.load_img(img_path, target_size=(224, 224))
+x = image.img_to_array(img)
+x = np.expand_dims(x, axis=0)
+x = preprocess_input(x)
+
+# Run inference
+preds = model.predict(x)
+
+# Decode and print the top-3 predicted classes
+decoded_preds = decode_predictions(preds, top=3)[0]
+print('Predicted:', decoded_preds)
+
+# Display the image and its predicted labels
+plt.figure(figsize=(8, 8))
+plt.imshow(img)
+plt.axis('off')
+plt.title('Predicted Labels:')
+for i, (imagenet_id, label, score) in enumerate(decoded_preds):
+    plt.text(0, i * 20 + 20, f'{label}: {score:.2f}', fontsize=12, color='white', backgroundcolor='blue')
+plt.show()
+
